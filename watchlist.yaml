@@ -1,0 +1,64 @@
+# 关注标的列表
+targets:
+  - symbol: "512690"
+    name: "酒ETF"
+    type: etf
+    sector: "白酒"
+    first_noticed: "2025-01-01"
+    position_held: true
+    cost_basis: 0.482
+    planned_allocation: 100000  # 计划投入总金额（元）
+
+  - symbol: "002714"
+    name: "牧原股份"
+    type: stock
+    sector: "养殖"
+    first_noticed: "2025-01-01"
+    position_held: false
+    cost_basis: null
+    planned_allocation: 100000
+
+  - symbol: "601899"
+    name: "紫金矿业"
+    type: stock
+    sector: "矿业"
+    first_noticed: "2025-01-01"
+    position_held: false
+    cost_basis: null
+    planned_allocation: 100000
+
+  - symbol: "002460"
+    name: "赣锋锂业"
+    type: stock
+    sector: "锂矿"
+    first_noticed: "2025-01-01"
+    position_held: false
+    cost_basis: null
+    planned_allocation: 100000
+
+  - symbol: "000876"
+    name: "新希望"
+    type: stock
+    sector: "养殖"
+    first_noticed: "2025-01-01"
+    position_held: false
+    cost_basis: null
+    planned_allocation: 100000
+
+  - symbol: "510300"
+    name: "沪深300ETF"
+    type: etf
+    sector: "基准"
+    first_noticed: "2025-01-01"
+    position_held: false
+    cost_basis: null
+    planned_allocation: 100000
+
+  - symbol: "600938"
+    name: "中国海油"
+    type: stock
+    sector: "石油"
+    first_noticed: "2026-05-25"
+    position_held: false
+    cost_basis: null
+    planned_allocation: 100000

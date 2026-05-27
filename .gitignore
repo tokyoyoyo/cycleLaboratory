@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+data/*.parquet
+.claude/memory/
+.claude/settings.json
+.claude/settings.local.json
+.claude/scheduled_tasks.json
+.claude/worktrees/
