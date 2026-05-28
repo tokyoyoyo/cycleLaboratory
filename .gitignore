@@ -7,4 +7,6 @@ data/*.parquet
 .claude/settings.json
 .claude/settings.local.json
 .claude/scheduled_tasks.json
+.claude/scheduled_tasks.lock
 .claude/worktrees/
+.vscode/

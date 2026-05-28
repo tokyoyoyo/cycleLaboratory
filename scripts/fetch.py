@@ -37,20 +37,39 @@ def _cache_path(filename: str) -> str:
 
 
 def _is_stale(filepath: str) -> bool:
-    """检查缓存是否过期"""
+    """检查缓存是否过期
+
+    规则:
+      - 交易时段（工作日 9:30-15:30）：缓存当日过期，跨日即失效
+      - 收盘后到次日开盘前：缓存不过期（数据已是今日收盘价）
+      - 周末/节假日：24小时过期，确保周一开盘前能拉到上周五数据
+    """
     if not os.path.exists(filepath):
         return True
     mtime = datetime.fromtimestamp(os.path.getmtime(filepath))
     now = datetime.now()
-    # 交易时间 + 收盘后30分钟，缓存当天过期
+
     if now.weekday() < 5:
         opening = now.replace(hour=9, minute=30, second=0)
         closing = now.replace(hour=15, minute=30, second=0)
+
         if opening <= now <= closing:
+            # 交易时段：必须今天拉过
             if mtime.date() < now.date():
                 return True
-    # 非交易时间，24小时过期
-    return (now - mtime) > timedelta(hours=24)
+
+        # 收盘后到次日开盘前：今天拉过就不算过期
+        # 如果缓存还是昨天的 → 收盘后 → 说明没拉到今天数据 → 过期
+        if now > closing and mtime.date() < now.date():
+            # 但如果是周五收盘后，周一开盘前不强制过期（让24h规则处理）
+            return False
+
+        # 开盘前：如果缓存是昨天的，等到交易时段再说
+        if now < opening and mtime.date() < now.date():
+            return False
+
+    # 兜底：超过 48 小时强制过期
+    return (now - mtime) > timedelta(hours=48)
 
 
 def load_kline(symbol: str) -> Optional[list]:

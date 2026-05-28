@@ -1,0 +1,11 @@
+# 假设交易账本 — AI 给出建议后，按"用户采纳"记录
+# analyze.py 读取此文件计算假设持仓状态
+trades:
+  - date: "2025-01-01"
+    symbol: "512690"
+    action: buy
+    type: "建仓"
+    quantity: 207468
+    price: 0.482
+    amount: 100000
+    reason: "初始建仓（迁移自 watchlist 旧数据）"

@@ -12,8 +12,9 @@
 
 新会话只需记住三件事：
 1. **数据在 `data/*.parquet`**，已缓存，无需重新拉（除非需要最新数据）
-2. **分析用 `scripts/analyze.py`**，输出 JSON
-3. **所有交互通过 skills**：`/check` 体检、`/scan` 扫市场、`/酒ETF-512690` 等标的专属分析
+2. **分析用 `scripts/analyze.py`**，输出 JSON（无评分，输出周期阶段+交易策略）
+3. **持仓在 `ledger.yaml`**：AI 给出买入/卖出建议后，按"用户已采纳"直接记录
+4. **所有交互通过 skills**：`/check` 体检、`/scan` 扫市场、`/酒ETF-512690` 等标的专属分析
 
 ## 可用的 Skills
 
@@ -24,11 +25,7 @@
 | `/target-酒ETF-512690` | 酒ETF 专属深度分析（白酒周期、渠道库存、茅台批价） |
 | `/target-牧原股份-002714` | 牧原股份 猪周期分析（能繁母猪、猪粮比） |
 | `/target-紫金矿业-601899` | 紫金矿业 铜金资源周期分析 |
-| `/target-赣锋锂业-002460` | 赣锋锂业 锂矿周期分析 |
-| `/target-新希望-000876` | 新希望 猪周期+饲料分析 |
 | `/target-沪深300ETF-510300` | 沪深300ETF 宏观周期分析 |
-| `/target-中国海油-600938` | 中国海油 原油周期分析 |
-
 ## 脚本用法
 
 ```bash
@@ -114,7 +111,7 @@ composite_score = 估值×0.35 + 技术×0.30 + 基本面×0.25 + 宏观×0.10
 ## 数据源
 
 - ETF 日线：Sina Finance（akshare `fund_etf_hist_sina`）
-- 个股日线：腾讯财经（akshare `stock_zh_a_hist_tx`），无成交量数据
+- 个股日线：Sina Finance（akshare `stock_zh_a_daily`），前复权，有成交量
 - 财务数据：腾讯财经（akshare `stock_financial_abstract`），季度数据
 - 指数行情：腾讯财经（akshare `stock_zh_index_daily_tx`）
 - 周线：日线 `resample("W")` 聚合生成
