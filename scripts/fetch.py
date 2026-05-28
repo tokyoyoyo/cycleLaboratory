@@ -86,6 +86,7 @@ def save_kline(symbol: str, data: list):
         "date": bar["date"], "open": bar["open"], "high": bar["high"],
         "low": bar["low"], "close": bar["close"],
         "volume": bar.get("volume", 0), "amount": bar.get("amount", 0),
+        "turnover": bar.get("turnover", 0),
     } for bar in data])
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").drop_duplicates(subset="date", keep="last")
@@ -106,6 +107,7 @@ def save_weekly_kline(symbol: str, data: list):
         "date": bar["date"], "open": bar["open"], "high": bar["high"],
         "low": bar["low"], "close": bar["close"],
         "volume": bar.get("volume", 0), "amount": bar.get("amount", 0),
+        "turnover": bar.get("turnover", 0),
     } for bar in data])
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").drop_duplicates(subset="date", keep="last")
@@ -193,6 +195,7 @@ def save_csi300(data: list):
         "date": bar["date"], "open": bar["open"], "high": bar["high"],
         "low": bar["low"], "close": bar["close"],
         "volume": bar.get("volume", 0), "amount": bar.get("amount", 0),
+        "turnover": bar.get("turnover", 0),
     } for bar in data])
     df["date"] = pd.to_datetime(df["date"])
     df = df.sort_values("date").drop_duplicates(subset="date", keep="last")
@@ -214,6 +217,7 @@ def _row_to_bar(row, symbol: str) -> dict:
         "open": float(row["open"]), "high": float(row["high"]),
         "low": float(row["low"]), "close": float(row["close"]),
         "volume": float(row.get("volume", 0)), "amount": float(row.get("amount", 0)),
+        "turnover": float(row.get("turnover", 0)),
     }
 
 
@@ -313,6 +317,7 @@ def _fetch_daily_kline_sina_stock(symbol: str, start_date: str, end_date: str) -
                 "low": float(row["low"]), "close": float(row["close"]),
                 "volume": float(row.get("volume", 0)),
                 "amount": float(row.get("amount", 0)),
+                "turnover": float(row.get("turnover", 0)),
             })
         except (ValueError, KeyError, TypeError):
             continue

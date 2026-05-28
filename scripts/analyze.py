@@ -350,6 +350,46 @@ def analyze_technical(kline: list, weekly_kline: Optional[list] = None) -> dict:
                 if closes[-1] >= price_40d_high * 0.98 and rsi_now < rsi_old2 - 5:
                     div_bear = True
 
+    # --- 换手率趋势 ---
+    turnover_trend = "无数据"
+    turnovers = np.array([b.get("turnover", 0) for b in kline])
+    if len(turnovers) >= 20 and np.sum(turnovers) > 0:
+        t_5d = np.mean(turnovers[-5:])
+        t_20d = np.mean(turnovers[-20:])
+        t_60d = np.mean(turnovers[-60:]) if len(turnovers) >= 60 else t_20d
+        if t_5d < t_20d * 0.6:
+            turnover_trend = "极度低迷"
+        elif t_5d < t_20d * 0.8:
+            turnover_trend = "偏低"
+        elif t_5d > t_20d * 1.5:
+            turnover_trend = "活跃"
+        elif t_5d > t_20d * 2.0:
+            turnover_trend = "极度活跃"
+        else:
+            turnover_trend = "正常"
+
+    # --- 布林带 ---
+    bb_position = "无数据"
+    if len(closes) >= 20:
+        ma20 = np.mean(closes[-20:])
+        std20 = np.std(closes[-20:])
+        if std20 > 0:
+            upper = ma20 + 2 * std20
+            lower = ma20 - 2 * std20
+            bb_pct = (current - lower) / (upper - lower)  # 0=下轨, 1=上轨
+            if bb_pct < 0:
+                bb_position = "下轨下方"
+            elif bb_pct < 0.15:
+                bb_position = "下轨附近"
+            elif bb_pct < 0.5:
+                bb_position = "中轨偏下"
+            elif bb_pct < 0.85:
+                bb_position = "中轨偏上"
+            elif bb_pct <= 1.0:
+                bb_position = "上轨附近"
+            else:
+                bb_position = "上轨上方"
+
     return {
         "rsi": rsi,
         "ma_status": ma_status,
@@ -358,6 +398,8 @@ def analyze_technical(kline: list, weekly_kline: Optional[list] = None) -> dict:
         "macd_daily": macd_daily_signal,
         "macd_weekly": macd_weekly_signal,
         "volume_trend": volume_trend,
+        "turnover_trend": turnover_trend,
+        "bb_position": bb_position,
         "divergence_bullish": div_bull,
         "divergence_bearish": div_bear,
     }
