@@ -10,3 +10,4 @@ data/*.parquet
 .claude/scheduled_tasks.lock
 .claude/worktrees/
 .vscode/
+ledger.yaml
