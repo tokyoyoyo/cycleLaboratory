@@ -54,7 +54,7 @@ def load_ledger() -> dict:
 def compute_holding(symbol: str, current_price: float) -> dict:
     """从 ledger 计算某个标的的假设持仓"""
     ledger = load_ledger()
-    trades = [t for t in ledger.get("trades", []) if t["symbol"] == symbol]
+    trades = [t for t in (ledger.get("trades") or []) if t["symbol"] == symbol]
 
     if not trades:
         return {"held": False, "shares": 0, "total_cost": 0,
