@@ -21,6 +21,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional
 
 import pandas as pd
+import requests
 import yaml
 import akshare as ak
 
@@ -204,6 +205,37 @@ def needs_refresh(symbol: str) -> bool:
     return _is_stale(_cache_path(f"{symbol}_daily_kline.parquet"))
 
 
+def _log_fetch(symbol: str, name: str, target_type: str,
+               data_start: str, data_end: str, rows: int,
+               has_today: bool, status: str, error: str = ""):
+    """记录每次数据拉取到 data/fetch_log.jsonl"""
+    log_path = _cache_path("fetch_log.jsonl")
+    entry = {
+        "ts": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "symbol": symbol,
+        "name": name,
+        "type": target_type,
+        "data_start": data_start,
+        "data_end": data_end,
+        "rows": rows,
+        "has_today": has_today,
+        "status": status,
+    }
+    if error:
+        entry["error"] = error
+    try:
+        with open(log_path, "a") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # 日志写入失败不应中断主流程
+
+
+def _log_fetch_csi300(data_start: str, data_end: str, rows: int, status: str, error: str = ""):
+    """CSI300 拉取日志"""
+    _log_fetch("CSI300", "沪深300指数", "index",
+               data_start, data_end, rows, False, status, error)
+
+
 def _row_to_bar(row, symbol: str) -> dict:
     d = row["date"]
     if hasattr(d, "date"):
@@ -262,6 +294,83 @@ def fetch_daily_kline(symbol: str, target_type: str,
         return _fetch_daily_kline_sina_stock(symbol, start_date, end_date)
 
 
+def _is_trading_day(d: date = None) -> bool:
+    """简单判断是否为交易日（仅排除周末，节假日由数据源自然过滤）"""
+    if d is None:
+        d = date.today()
+    return d.weekday() < 5
+
+
+def _after_market_close() -> bool:
+    """当前时间是否在收盘后（>15:30）"""
+    now = datetime.now()
+    closing = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    return now > closing
+
+
+def _fetch_realtime_sina(ex_symbol: str) -> Optional[dict]:
+    """从新浪实时行情获取当日数据，用于补充历史接口缺少的当日数据"""
+    try:
+        url = f"https://hq.sinajs.cn/list={ex_symbol}"
+        headers = {"Referer": "https://finance.sina.com.cn"}
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code != 200:
+            return None
+        # 格式: var hq_str_shXXXXXX="名称,今开,昨收,现价,最高,最低,买价,卖价,成交量,成交额,...日期,时间";
+        text = resp.text
+        if '="' not in text:
+            return None
+        data = text.split('="')[1].rstrip('";\n')
+        parts = data.split(",")
+        if len(parts) < 32:
+            return None
+        trade_date = datetime.strptime(parts[30], "%Y-%m-%d").date()
+        price = float(parts[3])
+        if price <= 0:
+            return None
+        return {
+            "date": trade_date,
+            "open": float(parts[1]),
+            "high": float(parts[4]),
+            "low": float(parts[5]),
+            "close": price,
+            "volume": float(parts[8]),
+            "amount": float(parts[9]),
+        }
+    except Exception:
+        return None
+
+
+def _supplement_today(symbol: str, result: list, ex_symbol: str) -> tuple:
+    """历史接口缺当日数据时，用实时行情补充。
+
+    仅在交易日收盘后执行——盘中实时价不是收盘价，不能写入日线缓存。
+    返回 (supplemented: bool, reason: str)。
+    """
+    if not result:
+        return False, "无历史数据"
+    last_date = result[-1]["date"]
+    today = date.today()
+    if last_date >= today:
+        return False, "数据已含今日"
+    if not _is_trading_day(today):
+        return False, "非交易日"
+    if not _after_market_close():
+        return False, "尚未收盘"
+    rt = _fetch_realtime_sina(ex_symbol)
+    if not rt:
+        return False, "实时行情获取失败"
+    if rt["date"] != today:
+        return False, f"实时行情日期不匹配: {rt['date']} != {today}"
+    result.append({
+        "symbol": symbol, "date": rt["date"],
+        "open": rt["open"], "high": rt["high"],
+        "low": rt["low"], "close": rt["close"],
+        "volume": rt["volume"], "amount": rt["amount"],
+    })
+    return True, "已补充当日实时数据"
+
+
 def _fetch_daily_kline_sina(symbol: str, start_date: str, end_date: str) -> list:
     """ETF 日线 - Sina Finance"""
     ex_symbol = _to_exchange_symbol(symbol)
@@ -288,6 +397,11 @@ def _fetch_daily_kline_sina(symbol: str, start_date: str, end_date: str) -> list
             })
         except (ValueError, KeyError, TypeError):
             continue
+
+    supplemented, reason = _supplement_today(symbol, result, ex_symbol)
+    if supplemented:
+        print(f"  ℹ {symbol}: {reason}")
+
     return result
 
 
@@ -319,6 +433,11 @@ def _fetch_daily_kline_sina_stock(symbol: str, start_date: str, end_date: str) -
             })
         except (ValueError, KeyError, TypeError):
             continue
+
+    supplemented, reason = _supplement_today(symbol, result, ex_symbol)
+    if supplemented:
+        print(f"  ℹ {symbol}: {reason}")
+
     return result
 
 
@@ -539,10 +658,17 @@ def main():
                 weekly = resample_daily_to_weekly(kline)
                 if weekly:
                     save_weekly_kline(symbol, weekly)
+                # 日志
+                has_today = kline[-1]["date"] == today
+                _log_fetch(symbol, name, ttype,
+                           str(kline[0]["date"]), str(kline[-1]["date"]),
+                           len(kline), has_today, "ok")
             else:
                 print(f"  ⚠ {name}: 无数据")
+                _log_fetch(symbol, name, ttype, "", "", 0, False, "empty")
         except Exception as e:
             print(f"  ⚠ {name}: 获取失败 - {e}")
+            _log_fetch(symbol, name, ttype, "", "", 0, False, "error", str(e))
 
         # 个股获取财务数据和指标
         if ttype == "stock":
@@ -585,8 +711,11 @@ def main():
                 if csi300:
                     save_csi300(csi300)
                     print(f"  ✓ 沪深300: {len(csi300)} 条")
+                    _log_fetch_csi300(str(csi300[0]["date"]), str(csi300[-1]["date"]),
+                                      len(csi300), "ok")
             except Exception as e:
                 print(f"  ⚠ 沪深300: {e}")
+                _log_fetch_csi300("", "", 0, "error", str(e))
     else:
         # 默认 --all
         for t in targets:
@@ -598,8 +727,11 @@ def main():
                 if csi300:
                     save_csi300(csi300)
                     print(f"  ✓ 沪深300: {len(csi300)} 条")
+                    _log_fetch_csi300(str(csi300[0]["date"]), str(csi300[-1]["date"]),
+                                      len(csi300), "ok")
             except Exception as e:
                 print(f"  ⚠ 沪深300: {e}")
+                _log_fetch_csi300("", "", 0, "error", str(e))
 
     print("\n数据获取完成。")
 

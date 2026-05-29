@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 .DS_Store
 data/*.parquet
+data/fetch_log.jsonl
 .claude/memory/
 .claude/settings.json
 .claude/settings.local.json
