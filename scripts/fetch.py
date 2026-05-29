@@ -58,11 +58,9 @@ def _is_stale(filepath: str) -> bool:
             if mtime.date() < now.date():
                 return True
 
-        # 收盘后到次日开盘前：今天拉过就不算过期
-        # 如果缓存还是昨天的 → 收盘后 → 说明没拉到今天数据 → 过期
-        if now > closing and mtime.date() < now.date():
-            # 但如果是周五收盘后，周一开盘前不强制过期（让24h规则处理）
-            return False
+        # 收盘后：缓存必须是在收盘后写入的，否则缺今天数据
+        if now > closing and mtime < closing:
+            return True
 
         # 开盘前：如果缓存是昨天的，等到交易时段再说
         if now < opening and mtime.date() < now.date():
