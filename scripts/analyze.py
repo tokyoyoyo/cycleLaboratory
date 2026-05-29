@@ -251,20 +251,52 @@ def analyze_technical(kline: list, weekly_kline: Optional[list] = None) -> dict:
 
     # --- RSI ---
     rsi = 50.0
+    rsi_extreme_days = 0  # 连续 RSI < 20 天数（底部极端超卖信号）
     if len(closes) >= rsi_period + 1:
         deltas = np.diff(closes)
         gains = np.where(deltas > 0, deltas, 0)
         losses = np.where(deltas < 0, -deltas, 0)
-        avg_gain = np.mean(gains[-rsi_period:])
-        avg_loss = np.mean(losses[-rsi_period:])
-        if avg_loss == 0:
-            rsi = 100.0
-        else:
-            rs = avg_gain / avg_loss
-            rsi = float(100 - 100 / (1 + rs))
-    rsi = round(rsi, 1)
+        # 计算完整 RSI 序列
+        rsi_series_list = []
+        for i in range(rsi_period, len(closes)):
+            ag = np.mean(gains[i - rsi_period:i])
+            al = np.mean(losses[i - rsi_period:i])
+            if al == 0:
+                rsi_series_list.append(100.0)
+            else:
+                rs_val = ag / al
+                rsi_series_list.append(float(100 - 100 / (1 + rs_val)))
+        rsi = round(rsi_series_list[-1], 1) if rsi_series_list else 50.0
+        # 统计连续 RSI < 20 天数
+        for v in reversed(rsi_series_list):
+            if v < 20:
+                rsi_extreme_days += 1
+            else:
+                break
 
     # --- MACD ---
+    def _classify_macd(dif: np.ndarray, dea: np.ndarray) -> str:
+        """MACD 状态分类：金叉/死叉=刚交叉，金叉衰减/死叉收敛=动能衰减中的状态"""
+        if len(dif) < 3 or len(dea) < 3:
+            return "中性"
+        macd_hist = dif - dea
+        # 最近 1-2 天发生的交叉
+        if dif[-2] <= dea[-2] and dif[-1] > dea[-1]:
+            return "金叉"
+        if dif[-2] >= dea[-2] and dif[-1] < dea[-1]:
+            return "死叉"
+        # 金叉区域：DIF > DEA
+        if dif[-1] > dea[-1]:
+            if len(macd_hist) >= 3 and macd_hist[-1] < macd_hist[-2]:
+                return "金叉衰减"
+            return "金叉"
+        # 死叉区域：DIF < DEA
+        if dif[-1] < dea[-1]:
+            if len(macd_hist) >= 3 and macd_hist[-1] > macd_hist[-2]:
+                return "死叉收敛"
+            return "死叉"
+        return "中性"
+
     macd_daily_signal = "中性"
     macd_weekly_signal = "中性"
     if len(closes) >= macd_slow + macd_signal:
@@ -272,11 +304,7 @@ def analyze_technical(kline: list, weekly_kline: Optional[list] = None) -> dict:
         ema_slow = _calc_ema(closes, macd_slow)
         dif = ema_fast - ema_slow
         dea = _calc_ema(dif, macd_signal)
-        if len(dif) >= 3 and len(dea) >= 3:
-            if dif[-2] <= dea[-2] and dif[-1] > dea[-1]:
-                macd_daily_signal = "金叉"
-            elif dif[-2] >= dea[-2] and dif[-1] < dea[-1]:
-                macd_daily_signal = "死叉"
+        macd_daily_signal = _classify_macd(dif, dea)
 
     if weekly_kline and len(weekly_kline) >= macd_slow + macd_signal:
         weekly_closes = np.array([b["close"] for b in weekly_kline])
@@ -284,11 +312,7 @@ def analyze_technical(kline: list, weekly_kline: Optional[list] = None) -> dict:
         w_ema_slow = _calc_ema(weekly_closes, macd_slow)
         w_dif = w_ema_fast - w_ema_slow
         w_dea = _calc_ema(w_dif, macd_signal)
-        if len(w_dif) >= 3 and len(w_dea) >= 3:
-            if w_dif[-2] <= w_dea[-2] and w_dif[-1] > w_dea[-1]:
-                macd_weekly_signal = "金叉"
-            elif w_dif[-2] >= w_dea[-2] and w_dif[-1] < w_dea[-1]:
-                macd_weekly_signal = "死叉"
+        macd_weekly_signal = _classify_macd(w_dif, w_dea)
 
     # --- 成交量 ---
     volume_trend = "正常"
@@ -316,38 +340,58 @@ def analyze_technical(kline: list, weekly_kline: Optional[list] = None) -> dict:
         volume_trend = "无成交量数据"
 
     # --- 背离检测 ---
+    # 计算完整 RSI 序列（用于找局部高低点对应的 RSI）
+    def _rsi_series(prices: np.ndarray, period: int = 14) -> np.ndarray:
+        d = np.diff(prices)
+        g = np.where(d > 0, d, 0)
+        l = np.where(d < 0, -d, 0)
+        result = np.full(len(prices), np.nan)
+        for i in range(period, len(prices)):
+            ag = np.mean(g[i - period:i])
+            al = np.mean(l[i - period:i])
+            result[i] = float(100 - 100 / (1 + ag / al)) if al > 0 else 100.0
+        return result
+
     div_bull = False
     div_bear = False
     if len(closes) >= 60:
-        # 底背离：价格新低但 RSI 未新低
-        recent_40_low = closes[-40:].min()
-        rsi_now = rsi
-        if len(closes) >= 40 + rsi_period:
-            older_seg = closes[:-(rsi_period + 20)]
-            if len(older_seg) >= rsi_period + 1:
-                od = np.diff(older_seg)
-                og = np.where(od > 0, od, 0)
-                ol = np.where(od < 0, -od, 0)
-                oag = np.mean(og[-rsi_period:]) if len(og) >= rsi_period else 0
-                oal = np.mean(ol[-rsi_period:]) if len(ol) >= rsi_period else 0
-                rsi_old = float(100 - 100 / (1 + oag / oal)) if oal > 0 else 100.0
-                price_40d_low = closes[-40:-20].min() if len(closes) >= 40 else recent_40_low
-                if closes[-1] <= price_40d_low * 1.02 and rsi_now > rsi_old + 5:
+        rsi_full = _rsi_series(closes, rsi_period)
+
+        # --- 底背离：价格低点更低，但 RSI 低点更高 ---
+        # 找最近两个局部价格低点（±5 天窗口内最低），搜索范围包含近端
+        local_low_indices = []
+        n = len(closes)
+        for i in range(55, n):
+            left = max(0, i - 5)
+            right = min(n, i + 6)
+            if closes[i] <= np.min(closes[left:right]):
+                local_low_indices.append(i)
+
+        if len(local_low_indices) >= 2:
+            i1, i2 = local_low_indices[-2], local_low_indices[-1]
+            price1, price2 = closes[i1], closes[i2]
+            rsi1, rsi2 = rsi_full[i1], rsi_full[i2]
+            # 价格创更低低点，且当前位置在近 5 天内
+            if (price2 < price1 * 0.98 and not np.isnan(rsi1) and not np.isnan(rsi2)
+                    and i2 >= len(closes) - 5):
+                if rsi2 > rsi1:
                     div_bull = True
 
-        # 顶背离：价格新高但 RSI 未新高
-        recent_40_high = closes[-40:].max()
-        if len(closes) >= 40 + rsi_period:
-            older_seg2 = closes[:-(rsi_period + 20)]
-            if len(older_seg2) >= rsi_period + 1:
-                od2 = np.diff(older_seg2)
-                og2 = np.where(od2 > 0, od2, 0)
-                ol2 = np.where(od2 < 0, -od2, 0)
-                oag2 = np.mean(og2[-rsi_period:]) if len(og2) >= rsi_period else 0
-                oal2 = np.mean(ol2[-rsi_period:]) if len(ol2) >= rsi_period else 0
-                rsi_old2 = float(100 - 100 / (1 + oag2 / oal2)) if oal2 > 0 else 100.0
-                price_40d_high = closes[-40:-20].max() if len(closes) >= 40 else recent_40_high
-                if closes[-1] >= price_40d_high * 0.98 and rsi_now < rsi_old2 - 5:
+        # --- 顶背离：价格高点更高，但 RSI 高点更低 ---
+        local_high_indices = []
+        for i in range(55, n):
+            left = max(0, i - 5)
+            right = min(n, i + 6)
+            if closes[i] >= np.max(closes[left:right]):
+                local_high_indices.append(i)
+
+        if len(local_high_indices) >= 2:
+            i1, i2 = local_high_indices[-2], local_high_indices[-1]
+            price1, price2 = closes[i1], closes[i2]
+            rsi1, rsi2 = rsi_full[i1], rsi_full[i2]
+            if (price2 > price1 * 1.02 and not np.isnan(rsi1) and not np.isnan(rsi2)
+                    and i2 >= len(closes) - 5):
+                if rsi2 < rsi1:
                     div_bear = True
 
     # --- 换手率趋势 ---
@@ -392,6 +436,7 @@ def analyze_technical(kline: list, weekly_kline: Optional[list] = None) -> dict:
 
     return {
         "rsi": rsi,
+        "rsi_extreme_days": rsi_extreme_days,
         "ma_status": ma_status,
         "ma_values": ma_values,
         "price_vs_ma": price_vs_ma,
@@ -556,6 +601,7 @@ def classify_cycle(valuation: dict, technical: dict,
     dd = valuation.get("drawdown_3y")
 
     rsi = technical.get("rsi", 50)
+    rsi_extreme_days = technical.get("rsi_extreme_days", 0)
     ma_status = technical.get("ma_status", "")
     volume_trend = technical.get("volume_trend", "")
     div_bull = technical.get("divergence_bullish", False)
@@ -633,6 +679,8 @@ def classify_cycle(valuation: dict, technical: dict,
 
             # 极低估值但无确认信号
             evidence_for.append(f"PB处于{pb_pct}%极低分位")
+            if rsi_extreme_days >= 3:
+                evidence_for.append(f"RSI连续{rsi_extreme_days}日极端超卖(<20)，恐慌性抛售或近尾声")
             if not div_bull:
                 evidence_against.append("无底背离信号")
             if ma_status == "空头排列":
@@ -653,10 +701,13 @@ def classify_cycle(valuation: dict, technical: dict,
                     "evidence_for": evidence_for + [f"PB分位{pb_pct}%", "技术面确认"],
                     "evidence_against": evidence_against,
                 }
+            ev_for = evidence_for + [f"PB分位{pb_pct}%"]
+            if rsi_extreme_days >= 3:
+                ev_for.append(f"RSI连续{rsi_extreme_days}日极端超卖(<20)，恐慌性抛售或近尾声")
             return {
                 "phase": "底部（早期）",
                 "reason": f"PB处于{pb_pct}%低位，等待技术面确认",
-                "evidence_for": evidence_for + [f"PB分位{pb_pct}%"],
+                "evidence_for": ev_for,
                 "evidence_against": evidence_against + ["均线偏弱"],
             }
 
@@ -931,7 +982,12 @@ def _build_recommendation(phase: str, technical: dict,
         risk_notes.append("生存力弱，需关注财务风险")
     if technical.get("divergence_bearish"):
         risk_notes.append("顶背离，注意回调")
-    if technical.get("rsi", 50) < 20:
+    extreme_days = technical.get("rsi_extreme_days", 0)
+    if extreme_days >= 5:
+        risk_notes.append(f"RSI连续{extreme_days}日<20，恐慌性抛售，警惕最后一跌但勿追空")
+    elif extreme_days >= 3:
+        risk_notes.append(f"RSI连续{extreme_days}日极端超卖，短期可能继续杀跌")
+    elif technical.get("rsi", 50) < 20:
         risk_notes.append("RSI极端超卖，短期可能继续杀跌")
     if phase == "底部（早期）" and technical.get("ma_status") == "空头排列":
         risk_notes.append("趋势仍在下行，左侧建仓需严格止损")
